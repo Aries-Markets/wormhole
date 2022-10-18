@@ -248,11 +248,13 @@ func (s *SolanaWatcher) fetchBlock(ctx context.Context, logger *zap.Logger, slot
 	defer cancel()
 	start := time.Now()
 	rewards := false
+	// Change to use s.rpcClient.GetBlockWithOpts()
 	out, err := s.rpcClient.GetConfirmedBlockWithOpts(rCtx, slot, &rpc.GetConfirmedBlockOpts{
-		Encoding:           "json",
-		TransactionDetails: "full",
-		Rewards:            &rewards,
-		Commitment:         s.commitment,
+		Encoding:                       "json",
+		TransactionDetails:             "full",
+		Rewards:                        &rewards,
+		Commitment:                     s.commitment,
+		MaxSupportedTransactionVersion: 0,
 	})
 
 	queryLatency.WithLabelValues(s.networkName, "get_confirmed_block", string(s.commitment)).Observe(time.Since(start).Seconds())
@@ -281,7 +283,7 @@ func (s *SolanaWatcher) fetchBlock(ctx context.Context, logger *zap.Logger, slot
 			}
 			return true
 		} else {
-			logger.Error("failed to request block", zap.Error(err), zap.Uint64("slot", slot),
+			logger.Error("failed to request block", zap.Error(err), zap.Uint64("slot", slot), // This error
 				zap.String("commitment", string(s.commitment)))
 			p2p.DefaultRegistry.AddErrorCount(s.chainID, 1)
 			solanaConnectionErrors.WithLabelValues(s.networkName, string(s.commitment), "get_confirmed_block_error").Inc()
@@ -304,10 +306,14 @@ func (s *SolanaWatcher) fetchBlock(ctx context.Context, logger *zap.Logger, slot
 		zap.String("commitment", string(s.commitment)))
 
 OUTER:
-	for _, tx := range out.Transactions {
-		signature := tx.Transaction.Signatures[0]
+	for _, txJson := range out.Transactions {
+		tx, err := txJson.GetTransaction()
+		if err != nil {
+			panic("failed to unmarshal transation")
+		}
+		signature := tx.Signatures[0]
 		var programIndex uint16
-		for n, key := range tx.Transaction.Message.AccountKeys {
+		for n, key := range tx.Message.AccountKeys {
 			if key.Equals(s.contract) {
 				programIndex = uint16(n)
 			}
@@ -316,7 +322,7 @@ OUTER:
 			continue
 		}
 
-		if tx.Meta.Err != nil {
+		if txJson.Meta.Err != nil {
 			logger.Debug("skipping failed Wormhole transaction",
 				zap.Stringer("signature", signature),
 				zap.Uint64("slot", slot),
@@ -330,7 +336,7 @@ OUTER:
 			zap.String("commitment", string(s.commitment)))
 
 		// Find top-level instructions
-		for i, inst := range tx.Transaction.Message.Instructions {
+		for i, inst := range tx.Message.Instructions {
 			found, err := s.processInstruction(ctx, logger, slot, inst, programIndex, tx, signature, i)
 			if err != nil {
 				logger.Error("malformed Wormhole instruction",
@@ -374,7 +380,13 @@ OUTER:
 			zap.Duration("took", time.Since(start)))
 
 		for _, inner := range tr.Meta.InnerInstructions {
-			for i, inst := range inner.Instructions {
+			for i, rpcInst := range inner.Instructions {
+				var accounts []uint16
+				for _, a := range rpcInst.Accounts {
+					accounts = append(accounts, uint16(a))
+				}
+				inst := solana.CompiledInstruction{ProgramIDIndex: rpcInst.ProgramIDIndex, Accounts: accounts, Data: rpcInst.Data}
+
 				_, err := s.processInstruction(ctx, logger, slot, inst, programIndex, tx, signature, i)
 				if err != nil {
 					logger.Error("malformed Wormhole instruction",
@@ -398,7 +410,7 @@ OUTER:
 	return true
 }
 
-func (s *SolanaWatcher) processInstruction(ctx context.Context, logger *zap.Logger, slot uint64, inst solana.CompiledInstruction, programIndex uint16, tx rpc.TransactionWithMeta, signature solana.Signature, idx int) (bool, error) {
+func (s *SolanaWatcher) processInstruction(ctx context.Context, logger *zap.Logger, slot uint64, inst solana.CompiledInstruction, programIndex uint16, tx *solana.Transaction, signature solana.Signature, idx int) (bool, error) {
 	if inst.ProgramIDIndex != programIndex {
 		return false, nil
 	}
@@ -435,7 +447,7 @@ func (s *SolanaWatcher) processInstruction(ctx context.Context, logger *zap.Logg
 	}
 
 	// The second account in a well-formed Wormhole instruction is the VAA program account.
-	acc := tx.Transaction.Message.AccountKeys[inst.Accounts[1]]
+	acc := tx.Message.AccountKeys[inst.Accounts[1]]
 
 	logger.Info("fetching VAA account", zap.Stringer("acc", acc),
 		zap.Stringer("signature", signature), zap.Uint64("slot", slot), zap.Int("idx", idx))
