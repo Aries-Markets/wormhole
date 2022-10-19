@@ -284,7 +284,7 @@ func (s *SolanaWatcher) fetchBlock(ctx context.Context, logger *zap.Logger, slot
 			}
 			return true
 		} else {
-			logger.Error("failed to request block", zap.Error(err), zap.Uint64("slot", slot), // This error
+			logger.Error("failed to request block", zap.Error(err), zap.Uint64("slot", slot),
 				zap.String("commitment", string(s.commitment)))
 			p2p.DefaultRegistry.AddErrorCount(s.chainID, 1)
 			solanaConnectionErrors.WithLabelValues(s.networkName, string(s.commitment), "get_confirmed_block_error").Inc()
@@ -309,6 +309,8 @@ OUTER:
 		tx, err := txJson.GetTransaction()
 		if err != nil {
 			panic("failed to unmarshal transation")
+			logger.Error("failed to unmarshal transation", zap.Error(err))
+			continue
 		}
 		signature := tx.Signatures[0]
 		var programIndex uint16
@@ -380,6 +382,7 @@ OUTER:
 
 		for _, inner := range tr.Meta.InnerInstructions {
 			for i, rpcInst := range inner.Instructions {
+				// Need to convert an rpc.CompiledInstruction into a solana.CompiledInstruction.
 				var accounts []uint16
 				for _, a := range rpcInst.Accounts {
 					accounts = append(accounts, uint16(a))
