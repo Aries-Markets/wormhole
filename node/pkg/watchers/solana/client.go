@@ -305,10 +305,9 @@ func (s *SolanaWatcher) fetchBlock(ctx context.Context, logger *zap.Logger, slot
 		zap.String("commitment", string(s.commitment)))
 
 OUTER:
-	for _, txJson := range out.Transactions {
-		tx, err := txJson.GetTransaction()
+	for _, txRpc := range out.Transactions {
+		tx, err := txRpc.GetTransaction()
 		if err != nil {
-			panic("failed to unmarshal transation")
 			logger.Error("failed to unmarshal transation", zap.Error(err))
 			continue
 		}
@@ -323,7 +322,7 @@ OUTER:
 			continue
 		}
 
-		if txJson.Meta.Err != nil {
+		if txRpc.Meta.Err != nil {
 			logger.Debug("skipping failed Wormhole transaction",
 				zap.Stringer("signature", signature),
 				zap.Uint64("slot", slot),
@@ -381,13 +380,13 @@ OUTER:
 			zap.Duration("took", time.Since(start)))
 
 		for _, inner := range tr.Meta.InnerInstructions {
-			for i, rpcInst := range inner.Instructions {
+			for i, instRpc := range inner.Instructions {
 				// Need to convert an rpc.CompiledInstruction into a solana.CompiledInstruction.
 				var accounts []uint16
-				for _, a := range rpcInst.Accounts {
+				for _, a := range instRpc.Accounts {
 					accounts = append(accounts, uint16(a))
 				}
-				inst := solana.CompiledInstruction{ProgramIDIndex: rpcInst.ProgramIDIndex, Accounts: accounts, Data: rpcInst.Data}
+				inst := solana.CompiledInstruction{ProgramIDIndex: instRpc.ProgramIDIndex, Accounts: accounts, Data: instRpc.Data}
 
 				_, err := s.processInstruction(ctx, logger, slot, inst, programIndex, tx, signature, i)
 				if err != nil {
