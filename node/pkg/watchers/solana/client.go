@@ -248,13 +248,14 @@ func (s *SolanaWatcher) fetchBlock(ctx context.Context, logger *zap.Logger, slot
 	defer cancel()
 	start := time.Now()
 	rewards := false
-	// Change to use s.rpcClient.GetBlockWithOpts()
-	out, err := s.rpcClient.GetConfirmedBlockWithOpts(rCtx, slot, &rpc.GetConfirmedBlockOpts{
-		Encoding:                       "json",
+
+	maxSupportedTransactionVersion := uint64(0)
+	out, err := s.rpcClient.GetBlockWithOpts(rCtx, slot, &rpc.GetBlockOpts{
+		Encoding:                       "base64", // solana-go doesn't support json encoding.
 		TransactionDetails:             "full",
 		Rewards:                        &rewards,
 		Commitment:                     s.commitment,
-		MaxSupportedTransactionVersion: 0,
+		MaxSupportedTransactionVersion: &maxSupportedTransactionVersion,
 	})
 
 	queryLatency.WithLabelValues(s.networkName, "get_confirmed_block", string(s.commitment)).Observe(time.Since(start).Seconds())
@@ -292,10 +293,8 @@ func (s *SolanaWatcher) fetchBlock(ctx context.Context, logger *zap.Logger, slot
 	}
 
 	if out == nil {
-		solanaConnectionErrors.WithLabelValues(s.networkName, string(s.commitment), "get_confirmed_block_error").Inc()
-		logger.Error("nil response when requesting block", zap.Error(err), zap.Uint64("slot", slot),
-			zap.String("commitment", string(s.commitment)))
-		p2p.DefaultRegistry.AddErrorCount(s.chainID, 1)
+		// Per the API, nil just means the block is not confirmed.
+		logger.Info("block is not yet finalized", zap.Uint64("slot", slot))
 		return false
 	}
 
@@ -356,8 +355,8 @@ OUTER:
 		// Call GetConfirmedTransaction to get at innerTransactions
 		rCtx, cancel := context.WithTimeout(ctx, rpcTimeout)
 		start := time.Now()
-		tr, err := s.rpcClient.GetConfirmedTransactionWithOpts(rCtx, signature, &rpc.GetTransactionOpts{
-			Encoding:   "json",
+		tr, err := s.rpcClient.GetTransaction(rCtx, signature, &rpc.GetTransactionOpts{
+			Encoding:   "base64", // solana-go doesn't support json encoding.
 			Commitment: s.commitment,
 		})
 		cancel()
