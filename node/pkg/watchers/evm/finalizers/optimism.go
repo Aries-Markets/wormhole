@@ -5,8 +5,6 @@ import (
 
 	"github.com/certusone/wormhole/node/pkg/watchers/evm/connectors"
 
-	ethRpc "github.com/ethereum/go-ethereum/rpc"
-
 	"go.uber.org/zap"
 )
 
@@ -17,19 +15,12 @@ import (
 type OptimismFinalizer struct {
 	logger    *zap.Logger
 	connector connectors.Connector
-	rawClient *ethRpc.Client
 }
 
 func NewOptimismFinalizer(ctx context.Context, logger *zap.Logger, connector connectors.Connector) *OptimismFinalizer {
-	rawClient, err := ethRpc.DialContext(ctx, "https://rpc.ankr.com/optimism_testnet")
-	if err != nil {
-		panic("failed to create raw client")
-	}
-
 	return &OptimismFinalizer{
 		logger:    logger,
 		connector: connector,
-		rawClient: rawClient,
 	}
 }
 
@@ -47,7 +38,7 @@ func (f *OptimismFinalizer) IsBlockFinalized(ctx context.Context, block *connect
 	}
 
 	var m Result
-	err := f.rawClient.CallContext(ctx, &m, "rollup_getInfo")
+	err := f.connector.RawCallContext(ctx, &m, "rollup_getInfo")
 	if err != nil {
 		f.logger.Error("failed to get rollup info", zap.String("eth_network", f.connector.NetworkName()), zap.Error(err))
 		return false, err
