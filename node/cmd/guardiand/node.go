@@ -231,7 +231,8 @@ var (
 	// Prometheus remote write URL
 	promRemoteURL *string
 
-	chainGovernorEnabled *bool
+	chainGovernorEnabled      *bool
+	governorFlowCancelEnabled *bool
 
 	ccqEnabled           *bool
 	ccqAllowedRequesters *string
@@ -249,6 +250,8 @@ var (
 
 	// env is the mode we are running in, Mainnet, Testnet or UnsafeDevnet.
 	env common.Environment
+
+	subscribeToVAAs *bool
 )
 
 func init() {
@@ -435,6 +438,7 @@ func init() {
 	promRemoteURL = NodeCmd.Flags().String("promRemoteURL", "", "Prometheus remote write URL (Grafana)")
 
 	chainGovernorEnabled = NodeCmd.Flags().Bool("chainGovernorEnabled", false, "Run the chain governor")
+	governorFlowCancelEnabled = NodeCmd.Flags().Bool("governorFlowCancelEnabled", false, "Enable flow cancel on the governor")
 
 	ccqEnabled = NodeCmd.Flags().Bool("ccqEnabled", false, "Enable cross chain query support")
 	ccqAllowedRequesters = NodeCmd.Flags().String("ccqAllowedRequesters", "", "Comma separated list of signers allowed to submit cross chain queries")
@@ -447,6 +451,8 @@ func init() {
 	gatewayRelayerContract = NodeCmd.Flags().String("gatewayRelayerContract", "", "Address of the smart contract on wormchain to receive relayed VAAs")
 	gatewayRelayerKeyPath = NodeCmd.Flags().String("gatewayRelayerKeyPath", "", "Path to gateway relayer private key for signing transactions")
 	gatewayRelayerKeyPassPhrase = NodeCmd.Flags().String("gatewayRelayerKeyPassPhrase", "", "Pass phrase used to unarmor the gateway relayer key file")
+
+	subscribeToVAAs = NodeCmd.Flags().Bool("subscribeToVAAs", false, "Guardiand should subscribe to incoming signed VAAs, set to true if running a public RPC node")
 }
 
 var (
@@ -538,6 +544,11 @@ func runNode(cmd *cobra.Command, args []string) {
 	lvl, err := ipfslog.LevelFromString(*logLevel)
 	if err != nil {
 		fmt.Println("Invalid log level")
+		os.Exit(1)
+	}
+
+	if !(*chainGovernorEnabled) && *governorFlowCancelEnabled {
+		fmt.Println("Flow cancel can only be enabled when the governor is enabled")
 		os.Exit(1)
 	}
 
@@ -1575,11 +1586,11 @@ func runNode(cmd *cobra.Command, args []string) {
 		node.GuardianOptionDatabase(db),
 		node.GuardianOptionWatchers(watcherConfigs, ibcWatcherConfig),
 		node.GuardianOptionAccountant(*accountantWS, *accountantContract, *accountantCheckEnabled, accountantWormchainConn, *accountantNttContract, accountantNttWormchainConn),
-		node.GuardianOptionGovernor(*chainGovernorEnabled),
+		node.GuardianOptionGovernor(*chainGovernorEnabled, *governorFlowCancelEnabled),
 		node.GuardianOptionGatewayRelayer(*gatewayRelayerContract, gatewayRelayerWormchainConn),
 		node.GuardianOptionQueryHandler(*ccqEnabled, *ccqAllowedRequesters),
 		node.GuardianOptionAdminService(*adminSocketPath, ethRPC, ethContract, rpcMap),
-		node.GuardianOptionP2P(p2pKey, *p2pNetworkID, *p2pBootstrap, *nodeName, *disableHeartbeatVerify, *p2pPort, *ccqP2pBootstrap, *ccqP2pPort, *ccqAllowedPeers, *gossipAdvertiseAddress, ibc.GetFeatures),
+		node.GuardianOptionP2P(p2pKey, *p2pNetworkID, *p2pBootstrap, *nodeName, *subscribeToVAAs, *disableHeartbeatVerify, *p2pPort, *ccqP2pBootstrap, *ccqP2pPort, *ccqAllowedPeers, *gossipAdvertiseAddress, ibc.GetFeatures),
 		node.GuardianOptionStatusServer(*statusAddr),
 		node.GuardianOptionProcessor(),
 	}
