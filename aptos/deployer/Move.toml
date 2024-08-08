@@ -4,7 +4,7 @@ version = '1.0.0'
 
 [dependencies.AptosFramework]
 git = 'https://github.com/aptos-labs/aptos-core.git'
-rev = 'aptos-node-v1.16.3'
+rev = 'aptos-node-v1.17.1'
 subdir = 'aptos-move/framework/aptos-framework'
 
 [dev-addresses]
